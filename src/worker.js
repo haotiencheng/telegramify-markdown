@@ -1,51 +1,67 @@
 // Import the library
 import telegramifyMarkdown from 'telegramify-markdown';
 
+// --- CORS Configuration ---
+const allowedOrigins = [
+	'https://md2tg.projectstain.dev', // Your frontend
+	'http://localhost:3000', // Common dev servers
+];
+
+// --- Main Worker Logic ---
 export default {
 	async fetch(request) {
-		// Set standard JSON headers for all responses
-		const headers = { 'Content-Type': 'application/json' };
+		const origin = request.headers.get('Origin');
+		const isAllowedOrigin = origin && allowedOrigins.includes(origin);
 
-		// 1. Only allow POST requests
+		// 1. Handle CORS Preflight (OPTIONS request)
+		if (request.method === 'OPTIONS') {
+			if (isAllowedOrigin) {
+				return new Response(null, {
+					status: 204,
+					headers: {
+						'Access-Control-Allow-Origin': origin,
+						'Access-Control-Allow-Methods': 'POST, OPTIONS',
+						'Access-Control-Allow-Headers': 'Content-Type',
+					},
+				});
+			} else {
+				return new Response('Forbidden', { status: 403 });
+			}
+		}
+
+		// Prepare a function to create responses with CORS headers
+		const createCorsResponse = (body, options) => {
+			const headers = new Headers(options.headers);
+			// Only add CORS header if the origin is allowed
+			if (isAllowedOrigin) {
+				headers.set('Access-Control-Allow-Origin', origin);
+			}
+			return new Response(body, { ...options, headers });
+		};
+
+		// 2. Process Actual API Request (POST)
+		const standardHeaders = { 'Content-Type': 'application/json' };
+
 		if (request.method !== 'POST') {
-			const errorResponse = {
-				success: false,
-				error: 'Only POST requests are accepted.',
-			};
-			return new Response(JSON.stringify(errorResponse), { status: 405, headers });
+			const errorResponse = { success: false, error: 'Only POST requests are accepted.' };
+			return createCorsResponse(JSON.stringify(errorResponse), { status: 405, headers: standardHeaders });
 		}
 
 		try {
-			// 2. Get the JSON from the request body
 			const body = await request.json();
 			const markdownText = body.markdown;
 
 			if (!markdownText) {
-				const errorResponse = {
-					success: false,
-					error: 'Request body must be a JSON object with a "markdown" key.',
-				};
-				return new Response(JSON.stringify(errorResponse), { status: 400, headers });
+				const errorResponse = { success: false, error: 'Request body must be a JSON object with a "markdown" key.' };
+				return createCorsResponse(JSON.stringify(errorResponse), { status: 400, headers: standardHeaders });
 			}
 
-			// 3. Use the library to convert the text
 			const convertedText = telegramifyMarkdown(markdownText);
-
-			// 4. Return the converted text in a JSON response
-			const successResponse = {
-				success: true,
-				data: {
-					telegram_text: convertedText,
-				},
-			};
-			return new Response(JSON.stringify(successResponse), { status: 200, headers });
+			const successResponse = { success: true, data: { telegram_text: convertedText } };
+			return createCorsResponse(JSON.stringify(successResponse), { status: 200, headers: standardHeaders });
 		} catch (error) {
-			// Handle cases where the request body is not valid JSON
-			const errorResponse = {
-				success: false,
-				error: 'Invalid JSON in request body.',
-			};
-			return new Response(JSON.stringify(errorResponse), { status: 400, headers });
+			const errorResponse = { success: false, error: 'Invalid JSON in request body.' };
+			return createCorsResponse(JSON.stringify(errorResponse), { status: 400, headers: standardHeaders });
 		}
 	},
 };
